@@ -6,62 +6,6 @@ import torch.nn.functional as F
 from torch.nn import init
 import math
 
-class SeparatedBatchNorm1d(nn.Module):
-    """
-    A batch normalization module which keeps its running mean
-    and variance separately per timestep.
-    """
-    def __init__(self, num_features, max_length, eps=1e-5, momentum=0.1, affine=True):
-        super(SeparatedBatchNorm1d, self).__init__()
-        self.num_features = num_features
-        self.max_length = max_length
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        
-        self.weight = nn.Parameter(torch.FloatTensor(num_features))
-        self.bias = nn.Parameter(torch.FloatTensor(num_features))
-        
-        for i in range(max_length):
-            self.register_buffer(
-                'running_mean_{}'.format(i), torch.zeros(num_features))
-            self.register_buffer(
-                'running_var_{}'.format(i), torch.ones(num_features))
-            
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        for i in range(self.max_length):
-            running_mean_i = getattr(self, 'running_mean_{}'.format(i))
-            running_var_i = getattr(self, 'running_var_{}'.format(i))
-            running_mean_i.zero_()
-            running_var_i.fill_(1)
-        if self.affine:
-            self.weight.data.uniform_()
-            self.bias.data.zero_()
-
-    def _check_input_dim(self, input_):
-        if input_.size(1) != self.running_mean_0.nelement():
-            raise ValueError('got {}-feature tensor, expected {}'
-                             .format(input_.size(1), self.num_features))
-
-    def forward(self, input_, time):
-        self._check_input_dim(input_)
-        if time >= self.max_length:
-            time = self.max_length - 1
-        running_mean = getattr(self, 'running_mean_{}'.format(time))
-        running_var = getattr(self, 'running_var_{}'.format(time))
-        return F.batch_norm(input=input_, running_mean=running_mean, running_var=running_var,
-                            weight=self.weight, bias=self.bias, training=self.training,
-                            momentum=self.momentum, eps=self.eps)
-
-    def __repr__(self):
-        return ('{name}({num_features}, eps={eps}, momentum={momentum},'
-                ' max_length={max_length}, affine={affine})'
-                .format(name=self.__class__.__name__, **self.__dict__))
-
-
-
 b_j0 = 0.1  # neural threshold baseline
 gamma = .5  # gradient scale
 lens = 0.3
@@ -186,24 +130,6 @@ class SNN(nn.Module):
         nn.init.zeros_(self.layer2_tauAdp.bias)
         nn.init.zeros_(self.layer3_x.bias)
         nn.init.zeros_(self.layer3_tauM.bias)
-
-        self.bn1a = SeparatedBatchNorm1d(hidden_size, max_length=P)
-        self.bn1b = SeparatedBatchNorm1d(hidden_size, max_length=P)
-        self.bn2a = SeparatedBatchNorm1d(hidden_size, max_length=P)
-        self.bn2b = SeparatedBatchNorm1d(hidden_size, max_length=P)
-        self.bn2 = SeparatedBatchNorm1d(output_size, max_length=P)
-        self.bn1a.reset_parameters()
-        self.bn1b.reset_parameters()
-        self.bn2.reset_parameters()
-        self.bn1a.bias.data.fill_(0)
-        self.bn1b.bias.data.fill_(0)
-        self.bn2a.bias.data.fill_(0)
-        self.bn2b.bias.data.fill_(0)
-        self.bn1a.weight.data.fill_(0.1)
-        self.bn1b.weight.data.fill_(0.1)
-        self.bn2a.weight.data.fill_(0.1)
-        self.bn2b.weight.data.fill_(0.1)
-        self.bn2.weight.data.fill_(0.1)
  
         
     def forward(self, inputs, h,i=None):
@@ -222,19 +148,19 @@ class SNN(nn.Module):
                 x = x[x_i]
                 x = torch.squeeze(x, dim = 1)          
             
-            dense_x = self.bn1a(self.layer1_x(x), i) + self.bn1b(self.layer1_r(h[1]), i)
+            dense_x = self.layer1_x(x) + self.layer1_r(h[1])
             tauM1 = self.act1m(self.layer1_tauM(torch.cat((dense_x, h[0]), dim = -1)))
             tauAdp1 = self.act1a(self.layer1_tauAdp(torch.cat((dense_x, h[2]), dim = -1)))        
             mem_1, spk_1, _, b_1 = mem_update_adp(dense_x, mem = h[0], spk = h[1], tau_adp = tauAdp1, tau_m = tauM1, b = h[2])
 
             
-            dense_x2 = self.bn2a(self.layer2_x(spk_1), i) + self.bn2b(self.layer2_r(h[1]), i)
+            dense_x2 = self.layer2_x(spk_1) + self.layer2_r(h[1])
             tauM2 = self.act2m(self.layer2_tauM(torch.cat((dense_x2, h[3]), dim = -1)))
             tauAdp2 = self.act2a(self.layer2_tauAdp(torch.cat((dense_x2, h[5]), dim = -1)))  
             mem_2, spk_2, _, b_2 = mem_update_adp(dense_x2, mem = h[3], spk = h[4], tau_adp = tauAdp2, tau_m = tauM2, b = h[5])
 
 
-            dense3_x = self.bn2(self.layer3_x(spk_2), i)
+            dense3_x = self.layer3_x(spk_2)
             tauM3 = self.act3(self.layer3_tauM(torch.cat((dense3_x, h[6]), dim = -1)))
             mem_3 = output_Neuron(dense3_x, mem = h[6], tau_m = tauM3)
 
