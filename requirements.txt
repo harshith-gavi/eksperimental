@@ -1,0 +1,9 @@
+h5py
+matplotlib
+numpy
+snntorch
+tonic
+torch
+torchplot
+torchvision
+tqdm
